@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-cream text-ink antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+      'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    /* 防止 iOS 橡皮筋滚动时露出白色底 */
+    background-color: #faf7f2;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  ::selection {
+    background: #d2dcc9;
+  }
+
+  /* 隐藏滚动条但保留滚动能力（时间流更干净） */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  /* 页面内容容器：移动优先，桌面端居中 */
+  .app-container {
+    @apply mx-auto w-full max-w-app px-5;
+  }
+
+  .card {
+    @apply rounded-3xl border border-line/80 bg-paper;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-line bg-white px-4 py-3 text-[15px] text-ink
+      outline-none transition placeholder:text-muted/70
+      focus:border-sage-300 focus:ring-4 focus:ring-sage-100;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[15px]
+      font-medium transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-sage-500 text-white shadow-soft active:bg-sage-600;
+  }
+
+  .btn-soft {
+    @apply btn bg-sage-100 text-sage-600 active:bg-sage-200;
+  }
+
+  .btn-ghost {
+    @apply btn border border-line bg-white/70 text-ink;
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-full border border-line bg-white px-3 py-1.5
+      text-[13px] text-muted transition active:scale-95;
+  }
+
+  .chip-on {
+    @apply border-sage-300 bg-sage-100 text-sage-600;
+  }
+
+  .section-title {
+    @apply text-[13px] font-medium tracking-wide text-muted;
+  }
+
+  .divider {
+    @apply h-px w-full bg-line;
+  }
+
+  .safe-top {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* 底部导航占位，避免内容被遮挡 */
+  .page-with-nav {
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* 抽签时文字滚动的轻微呼吸感 */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.97);
+  }
+}
+
+.rolling {
+  animation: soft-pulse 0.28s ease-in-out infinite;
+}
+
+/* 页面切换的淡入 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

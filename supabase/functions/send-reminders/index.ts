@@ -89,6 +89,7 @@ async function sendToSubscriptions(subscriptions: SubscriptionRow[], payload: Pa
   let sent = 0
   let removed = 0
   let failed = 0
+  const statuses: number[] = []
 
   await Promise.all(
     subscriptions.map(async (sub) => {
@@ -109,13 +110,14 @@ async function sendToSubscriptions(subscriptions: SubscriptionRow[], payload: Pa
           removed += 1
         } else {
           failed += 1
+          if (statusCode) statuses.push(statusCode)
           console.error('[push] 发送失败', sub.id, statusCode, error)
         }
       }
     })
   )
 
-  return { sent, removed, failed }
+  return { sent, removed, failed, statuses }
 }
 
 /** 测试推送：只发给调用者自己，验证订阅链路 */

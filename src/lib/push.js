@@ -70,11 +70,19 @@ export async function getPushState() {
   }
 }
 
+function keyMatches(subscription, publicKey) {
+  const current = subscription.options?.applicationServerKey
+  if (!current) return true
+  const expected = urlBase64ToUint8Array(publicKey)
+  const actual = new Uint8Array(current)
+  return actual.length === expected.length && actual.every((byte, i) => byte === expected[i])
+}
+
 /**
  * 开启通知：申请系统权限 → 订阅推送 → 写入 push_subscriptions。
  * 必须由用户点击触发（iOS 要求用户手势）。
  */
-export async function enablePush(userId) {
+export async function enablePush(userId, { renew = false } = {}) {
   if (!pushSupported()) throw new Error('当前浏览器不支持通知推送')
   if (!vapidPublicKey) throw new Error('尚未配置 VAPID 公钥，请检查部署环境变量')
   if (isIOS() && !isStandalone()) {
@@ -88,6 +96,12 @@ export async function enablePush(userId) {
 
   const registration = await ensureRegistration()
   let subscription = await registration.pushManager.getSubscription()
+
+  // 换过 VAPID 密钥或推送服务已判定失效的旧订阅，继续复用只会一直发送失败
+  if (subscription && (renew || !keyMatches(subscription, vapidPublicKey))) {
+    await subscription.unsubscribe()
+    subscription = null
+  }
 
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({

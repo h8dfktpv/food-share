@@ -139,11 +139,20 @@ async function enableNotifications() {
 async function testNotification() {
   testBusy.value = true
   try {
-    const result = await sendTestPush()
-    if (result?.sent === 0) {
-      toastError('没有可用的订阅，请先开启通知')
-    } else {
+    let result = await sendTestPush()
+    if (result?.sent === 0 && !result.failed) {
+      // 浏览器本地有订阅，但数据库里没有（当初登记失败，或已被推送服务判定失效并清理），重新登记后再试
+      await enablePush(currentUser.value.id, { renew: result.removed > 0 })
+      result = await sendTestPush()
+    }
+
+    if (result?.sent > 0) {
       toastSuccess('已发送，请留意通知栏')
+    } else if (result?.failed) {
+      const codes = result.statuses?.length ? `（状态码 ${result.statuses.join('/')}）` : ''
+      toastError(`推送服务拒绝发送${codes}，请检查前后端 VAPID 密钥是否为同一对`)
+    } else {
+      toastError('没有可用的订阅，请先开启通知')
     }
     await refreshPush()
   } catch (error) {

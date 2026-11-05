@@ -25,12 +25,14 @@ export const MESSAGE_TYPES = {
   dish: '新增菜品'
 }
 
-/** 向指定账号发送一条站内消息 */
+/** 向指定账号发送一条站内消息，并同步推送系统通知 */
 export async function pushMessage({ userId, type, title, body = '', data = {} }) {
   if (!userId) {
     console.warn('[messages] pushMessage 跳过：userId 为空')
     return { error: new Error('userId 为空') }
   }
+
+  // 1. 写入信箱（永久留存）
   const { error } = await supabase.from('messages').insert({
     user_id: userId,
     type,
@@ -39,10 +41,30 @@ export async function pushMessage({ userId, type, title, body = '', data = {} })
     data
   })
   if (error) {
-    // 打出完整错误，方便在浏览器控制台定位 RLS / 约束问题
     console.error('[messages] 写入消息失败：', { type, userId, title, error: error.message })
     return { error }
   }
+
+  // 2. 发送系统推送（锁屏/通知栏）。失败不影响信箱记录，仅打日志。
+  try {
+    const { data: pushRes, error: pushErr } = await supabase.functions.invoke('send-push', {
+      body: {
+        userId,
+        title,
+        body,
+        url: '/',
+        tag: `liangrenshi-${type}`
+      }
+    })
+    if (pushErr) {
+      console.warn('[messages] 系统推送调用失败：', pushErr.message)
+    } else if (pushRes?.sent === 0) {
+      console.warn('[messages] 对方暂无推送订阅，仅写入信箱：', pushRes?.message)
+    }
+  } catch (e) {
+    console.warn('[messages] 系统推送异常：', e?.message)
+  }
+
   return { error: null }
 }
 
@@ -99,6 +121,32 @@ async function refreshUnreadCount() {
   unreadCount.value = count ?? 0
 }
 
+/**
+ * 页面打开时，收到新消息直接弹浏览器系统通知（通知栏）。
+ * 这是 Web Push（页面关闭时）的补充：页面开着时靠这个，关着时靠 Edge Function 的 Web Push。
+ */
+function showIncomingNotification(message) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  // 自己的操作也会触发 realtime，但收件人是对方，所以用 user_id 过滤
+  if (message?.user_id !== currentUser.value?.id) return
+
+  try {
+    const n = new Notification(message.title || '两人食', {
+      body: message.body || '',
+      tag: message.id,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png'
+    })
+    n.onclick = () => {
+      window.focus()
+      n.close()
+    }
+  } catch (e) {
+    // 某些浏览器在非安全上下文会抛错，忽略
+  }
+}
+
 /** 启动未读数实时监听（应用启动时调用一次） */
 export function startMessagesRealtime() {
   if (started) return
@@ -106,13 +154,18 @@ export function startMessagesRealtime() {
 
   refreshUnreadCount()
 
-  // messages 表的 insert/update/delete 都触发重新计数
+  // messages 表的 insert/update/delete 都触发重新计数；INSERT 时弹系统通知
   countChannel = supabase
     .channel('messages-unread')
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'messages' },
-      () => refreshUnreadCount()
+      (payload) => {
+        refreshUnreadCount()
+        if (payload.eventType === 'INSERT') {
+          showIncomingNotification(payload.new)
+        }
+      }
     )
     .subscribe()
 }

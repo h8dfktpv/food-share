@@ -89,7 +89,6 @@ async function sendToSubscriptions(subscriptions: SubscriptionRow[], payload: Pa
   let sent = 0
   let removed = 0
   let failed = 0
-  const statuses: number[] = []
 
   await Promise.all(
     subscriptions.map(async (sub) => {
@@ -110,14 +109,13 @@ async function sendToSubscriptions(subscriptions: SubscriptionRow[], payload: Pa
           removed += 1
         } else {
           failed += 1
-          if (statusCode) statuses.push(statusCode)
           console.error('[push] 发送失败', sub.id, statusCode, error)
         }
       }
     })
   )
 
-  return { sent, removed, failed, statuses }
+  return { sent, removed, failed }
 }
 
 /** 测试推送：只发给调用者自己，验证订阅链路 */
@@ -184,8 +182,17 @@ async function handleCron(req: Request) {
       continue
     }
 
-    // 同一提醒每天只处理一次；并发/重复调用时唯一约束会拦住。
-    // 先占坑，再写站内信箱 + 发系统推送，保证两者同生共死、一天只一条。
+    const { data: subscriptions } = await admin
+      .from('push_subscriptions')
+      .select('id, endpoint, p256dh, auth')
+      .in('user_id', targetIds)
+
+    if (!subscriptions?.length) {
+      skipped += 1
+      continue
+    }
+
+    // 同一提醒每天只发一次；并发/重复调用时唯一约束会拦住
     const { error: logError } = await admin
       .from('reminder_logs')
       .insert({ reminder_id: reminder.id, sent_date: now.date })
@@ -199,37 +206,30 @@ async function handleCron(req: Request) {
     }
 
     remindersReceived += 1
-
-    // 1) 先给对方每人写一条站内信箱消息：永久留存，铃铛红点会亮，
-    //    即使对方没装锁屏推送 / 手机收不到，登录后也能在信箱里看到。
-    const { error: mailboxError } = await admin.from('messages').insert(
-      targetIds.map((userId) => ({
-        user_id: userId,
-        type: 'meal_reminder',
-        title: `${reminder.label} · 饭点提醒`,
-        body: reminder.message,
-        data: { reminder_id: reminder.id, date: now.date }
-      }))
-    )
-    if (mailboxError) {
-      console.error('[mailbox] 写信箱失败', reminder.id, mailboxError)
-    }
-
-    // 2) 再尝试发系统锁屏推送；对方没订阅就静默跳过，信箱里仍有记录。
-    const { data: subscriptions } = await admin
-      .from('push_subscriptions')
-      .select('id, endpoint, p256dh, auth')
-      .in('user_id', targetIds)
-
-    if (!subscriptions?.length) continue
-
+    const pushTitle = `${reminder.label} 该吃饭啦 🍚`
     const result = await sendToSubscriptions(subscriptions, {
-      title: `${reminder.label} · 饭点提醒`,
+      title: pushTitle,
       body: reminder.message,
-      url: '/?from=meal_reminder',
+      url: '/',
       tag: `reminder-${reminder.id}`
     })
     sent += result.sent
+
+    // 同时给每位收件人写一条站内信箱消息（Web Push 是瞬时的，信箱是永久记录）
+    if (targetIds.length) {
+      const { error: msgError } = await admin.from('messages').insert(
+        targetIds.map((userId) => ({
+          user_id: userId,
+          type: 'meal_reminder',
+          title: pushTitle,
+          body: reminder.message,
+          data: { reminder_id: reminder.id }
+        }))
+      )
+      if (msgError) {
+        console.error('[push] 写入站内消息失败', reminder.id, msgError)
+      }
+    }
   }
 
   // 清理 30 天前的发送日志，避免表无限增长

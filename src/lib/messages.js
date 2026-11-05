@@ -27,7 +27,10 @@ export const MESSAGE_TYPES = {
 
 /** 向指定账号发送一条站内消息 */
 export async function pushMessage({ userId, type, title, body = '', data = {} }) {
-  if (!userId) return
+  if (!userId) {
+    console.warn('[messages] pushMessage 跳过：userId 为空')
+    return { error: new Error('userId 为空') }
+  }
   const { error } = await supabase.from('messages').insert({
     user_id: userId,
     type,
@@ -36,7 +39,8 @@ export async function pushMessage({ userId, type, title, body = '', data = {} })
     data
   })
   if (error) {
-    console.warn('[messages] 写入消息失败：', error.message)
+    // 打出完整错误，方便在浏览器控制台定位 RLS / 约束问题
+    console.error('[messages] 写入消息失败：', { type, userId, title, error: error.message })
     return { error }
   }
   return { error: null }

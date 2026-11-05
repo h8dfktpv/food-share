@@ -13,10 +13,22 @@ export const authReady = ref(false)
 let initStarted = false
 let authListener = null
 
-/** 对方（另一个账号） */
+/** 对方（另一个账号），依赖 members 已加载 */
 export const partner = computed(() => {
   return members.value.find((m) => m.user_id !== currentUser.value?.id) || null
 })
+
+/**
+ * 可靠地获取对方 user_id。
+ * 直接用 partner.value 有时会因为 members 还没加载完而为 null，
+ * 导致发消息被静默跳过。这里如果缓存没就绪就主动查一次库。
+ */
+export async function getPartnerId() {
+  if (partner.value) return partner.value.user_id
+  if (!currentUser.value) return null
+  await loadMembers()
+  return partner.value?.user_id || null
+}
 
 /** 根据 user_id 取展示名，用于打卡/评论列表 */
 export function memberName(userId) {
@@ -31,7 +43,7 @@ export function memberName(userId) {
 export async function loadMembers() {
   const { data, error } = await supabase
     .from('members')
-    .select('user_id, email, display_name, partner_id')
+    .select('user_id, email, display_name')
     .order('created_at', { ascending: true })
 
   if (error) {

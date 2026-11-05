@@ -4,7 +4,8 @@ import BaseModal from '../components/BaseModal.vue'
 import BottomNav from '../components/BottomNav.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
-import { currentUser } from '../lib/auth'
+import { currentMember, currentUser, getPartnerId } from '../lib/auth'
+import { pushMessage } from '../lib/messages'
 import { supabase } from '../lib/supabase'
 import { toastError, toastSuccess } from '../lib/toast'
 
@@ -199,6 +200,24 @@ async function createDish() {
   }
   showAdd.value = false
   toastSuccess('已加入菜单')
+
+  // 给对方写一条站内消息
+  if (data) {
+    const partnerId = await getPartnerId()
+    if (partnerId) {
+      const myName = currentMember.value?.display_name || '我'
+      const tagText = (data.tags || []).join('、')
+      await pushMessage({
+        userId: partnerId,
+        type: 'dish',
+        title: `${myName} 加了新菜品：${name}`,
+        body: tagText ? `标签：${tagText}` : '去抽签看看会不会抽到它',
+        data: { dish_id: data.id }
+      })
+    } else {
+      console.warn('[dishes] 未找到对方账号，跳过站内消息')
+    }
+  }
 }
 
 async function removeDish(dish) {

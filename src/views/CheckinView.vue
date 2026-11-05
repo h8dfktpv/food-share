@@ -3,13 +3,14 @@ import { onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BottomNav from '../components/BottomNav.vue'
 import Icon from '../components/Icon.vue'
-import { currentUser, currentMember } from '../lib/auth'
+import { currentMember, currentUser, getPartnerId } from '../lib/auth'
 import { prepareImage } from '../lib/image'
+import { pushMessage } from '../lib/messages'
 import { PHOTO_BUCKET, supabase } from '../lib/supabase'
 import { toastError, toastSuccess } from '../lib/toast'
-import { pushMessage } from '../lib/messages'
 
 const router = useRouter()
+
 const cameraInput = ref(null)
 const libraryInput = ref(null)
 const prepared = ref(null) // { blob, contentType, extension }
@@ -23,6 +24,7 @@ async function handleFile(event) {
   // 清空 input，允许再次选择同一张照片
   event.target.value = ''
   if (!file) return
+
   preparing.value = true
   try {
     const result = await prepareImage(file)
@@ -51,9 +53,11 @@ async function submit() {
     toastError('登录状态已失效')
     return
   }
+
   submitting.value = true
   const suffix = Math.random().toString(36).slice(2, 8)
   const path = `${currentUser.value.id}/${Date.now()}-${suffix}.${prepared.value.extension}`
+
   const { error: uploadError } = await supabase.storage
     .from(PHOTO_BUCKET)
     .upload(path, prepared.value.blob, {
@@ -61,16 +65,23 @@ async function submit() {
       cacheControl: '31536000',
       upsert: false
     })
+
   if (uploadError) {
     submitting.value = false
     toastError(`照片上传失败：${uploadError.message}`)
     return
   }
-  const { error } = await supabase.from('checkins').insert({
-    author_id: currentUser.value.id,
-    image_path: path,
-    note: note.value.trim()
-  })
+
+  const { data: inserted, error } = await supabase
+    .from('checkins')
+    .insert({
+      author_id: currentUser.value.id,
+      image_path: path,
+      note: note.value.trim()
+    })
+    .select('id')
+    .single()
+
   if (error) {
     // 记录写入失败时清理已上传的照片，避免产生孤儿文件
     await supabase.storage.from(PHOTO_BUCKET).remove([path])
@@ -79,7 +90,20 @@ async function submit() {
     return
   }
 
-
+  // 给对方写一条站内消息（Web Push 仍由 Edge Function 按饭点触发，这里只做信箱记录）
+  const partnerId = await getPartnerId()
+  if (partnerId) {
+    const myName = currentMember.value?.display_name || '我'
+    await pushMessage({
+      userId: partnerId,
+      type: 'photo',
+      title: `${myName} 上传了新照片`,
+      body: note.value.trim() || '点开看看吃了什么～',
+      data: { checkin_id: inserted?.id, image_path: path }
+    })
+  } else {
+    console.warn('[checkin] 未找到对方账号，跳过站内消息')
+  }
 
   submitting.value = false
   toastSuccess('打卡成功')
@@ -101,22 +125,23 @@ onBeforeUnmount(() => {
         <h1 class="mt-1 text-[24px] font-semibold tracking-tight">记录这一餐</h1>
       </div>
     </header>
-    <main class="app-container page-with-nav space-y-4">
 
-  <!-- 照片区域 -->
-  <section class="card overflow-hidden">
-    <button
-      v-if="!previewUrl"
-      type="button"
-      class="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 bg-sage-50/60 transition active:bg-sage-100/70"
-      @click="libraryInput?.click()"
-    >
-      <div class="grid h-14 w-14 place-items-center rounded-full bg-white text-sage-500 shadow-soft">
-        <Icon name="image" :size="26" />
-      </div>
+    <main class="app-container page-with-nav space-y-4">
+      <!-- 照片区域 -->
+      <section class="card overflow-hidden">
+        <button
+          v-if="!previewUrl"
+          type="button"
+          class="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 bg-sage-50/60 transition active:bg-sage-100/70"
+          @click="libraryInput?.click()"
+        >
+          <div class="grid h-14 w-14 place-items-center rounded-full bg-white text-sage-500 shadow-soft">
+            <Icon name="image" :size="26" />
+          </div>
           <p class="text-[14px]">{{ preparing ? '正在处理照片…' : '从相册选一张，或现场拍' }}</p>
           <p class="text-[11px] text-muted">上传前会自动压缩，省流量</p>
         </button>
+
         <div v-else class="relative">
           <img :src="previewUrl" alt="打卡照片预览" class="aspect-[4/3] w-full object-cover" />
           <button
@@ -129,6 +154,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </section>
+
       <!-- 拍照 / 相册 -->
       <div class="grid grid-cols-2 gap-3">
         <button
@@ -150,6 +176,7 @@ onBeforeUnmount(() => {
           相册
         </button>
       </div>
+
       <!-- 备注 -->
       <section class="card p-4">
         <div class="flex items-center justify-between">
@@ -165,6 +192,7 @@ onBeforeUnmount(() => {
           class="input mt-2 text-[14px] leading-relaxed"
         />
       </section>
+
       <button
         type="button"
         class="btn-primary w-full py-3.5"
@@ -173,9 +201,11 @@ onBeforeUnmount(() => {
       >
         {{ submitting ? '正在发布…' : '发布打卡' }}
       </button>
+
       <p class="text-center text-[11px] leading-relaxed text-muted">
         照片与备注仅你们两人可见 · 存放在私有存储桶
       </p>
+
       <input
         ref="cameraInput"
         type="file"
@@ -192,7 +222,7 @@ onBeforeUnmount(() => {
         @change="handleFile"
       />
     </main>
+
     <BottomNav />
   </div>
 </template>
-

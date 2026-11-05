@@ -3,8 +3,9 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import BottomNav from '../components/BottomNav.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
-import { currentUser, memberName } from '../lib/auth'
+import { currentMember, currentUser, getPartnerId, memberName } from '../lib/auth'
 import { shortTime } from '../lib/date'
+import { pushMessage } from '../lib/messages'
 import { supabase } from '../lib/supabase'
 import { toastError, toastSuccess } from '../lib/toast'
 
@@ -50,6 +51,23 @@ async function sendMessage() {
   }
   draft.value = ''
   toastSuccess('已发送')
+
+  // 给对方写一条站内消息
+  if (data) {
+    const partnerId = await getPartnerId()
+    if (partnerId) {
+      const myName = currentMember.value?.display_name || '我'
+      await pushMessage({
+        userId: partnerId,
+        type: 'note',
+        title: `${myName} 给你留了言`,
+        body: content,
+        data: { board_message_id: data.id }
+      })
+    } else {
+      console.warn('[board] 未找到对方账号，跳过站内消息')
+    }
+  }
 }
 
 async function removeMessage(message) {

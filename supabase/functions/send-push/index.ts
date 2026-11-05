@@ -84,6 +84,8 @@ async function sendToSubscriptions(subscriptions: SubscriptionRow[], payload: { 
 }
 
 Deno.serve(async (req) => {
+  console.log('[send-push] 收到请求', req.method, new URL(req.url).pathname)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -91,6 +93,7 @@ Deno.serve(async (req) => {
     return json({ error: 'method not allowed' }, 405)
   }
   if (!env.vapidPublic || !env.vapidPrivate) {
+    console.error('[send-push] VAPID 未配置')
     return json({ error: 'VAPID 未配置' }, 500)
   }
 

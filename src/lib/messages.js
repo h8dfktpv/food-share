@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { currentUser } from './auth'
-import { supabase } from './supabase'
+import { supabase, supabaseUrl } from './supabase'
 
 /**
  * 站内信箱。
@@ -27,12 +27,15 @@ export const MESSAGE_TYPES = {
 
 /** 向指定账号发送一条站内消息，并同步推送系统通知 */
 export async function pushMessage({ userId, type, title, body = '', data = {} }) {
+  console.log('[messages] pushMessage 开始', { userId, type, title, body })
+
   if (!userId) {
     console.warn('[messages] pushMessage 跳过：userId 为空')
     return { error: new Error('userId 为空') }
   }
 
   // 1. 写入信箱（永久留存）
+  console.log('[messages] 步骤1：写入 messages 表')
   const { error } = await supabase.from('messages').insert({
     user_id: userId,
     type,
@@ -44,25 +47,60 @@ export async function pushMessage({ userId, type, title, body = '', data = {} })
     console.error('[messages] 写入消息失败：', { type, userId, title, error: error.message })
     return { error }
   }
+  console.log('[messages] 步骤1完成：messages 写入成功')
 
   // 2. 发送系统推送（锁屏/通知栏）。失败不影响信箱记录，仅打日志。
+  //    用 fetch 直接调用，方便打印完整请求/响应定位问题。
+  console.log('[messages] 步骤2：调用 send-push Edge Function')
   try {
-    const { data: pushRes, error: pushErr } = await supabase.functions.invoke('send-push', {
-      body: {
-        userId,
-        title,
-        body,
-        url: '/',
-        tag: `liangrenshi-${type}`
-      }
+    const { data: session } = await supabase.auth.getSession()
+    const token = session?.session?.access_token
+    if (!token) {
+      console.warn('[messages] 没有 session token，跳过推送')
+      return { error: null }
+    }
+
+    const pushUrl = `${supabaseUrl}/functions/v1/send-push`
+    const pushBody = {
+      userId,
+      title,
+      body,
+      url: '/',
+      tag: `liangrenshi-${type}`
+    }
+
+    console.log('[messages] send-push 请求', { url: pushUrl, body: pushBody, token: token.slice(0, 20) + '...' })
+
+    const resp = await fetch(pushUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+      },
+      body: JSON.stringify(pushBody)
     })
-    if (pushErr) {
-      console.warn('[messages] 系统推送调用失败：', pushErr.message)
-    } else if (pushRes?.sent === 0) {
-      console.warn('[messages] 对方暂无推送订阅，仅写入信箱：', pushRes?.message)
+
+    console.log('[messages] send-push 响应状态', resp.status, resp.statusText)
+
+    const text = await resp.text()
+    let json
+    try {
+      json = JSON.parse(text)
+    } catch {
+      json = { raw: text }
+    }
+    console.log('[messages] send-push 响应体', json)
+
+    if (!resp.ok) {
+      console.warn('[messages] send-push 返回非 2xx：', resp.status, json)
+    } else if (json?.sent === 0) {
+      console.warn('[messages] 对方暂无推送订阅，仅写入信箱：', json?.message)
+    } else {
+      console.log('[messages] send-push 发送成功：', json)
     }
   } catch (e) {
-    console.warn('[messages] 系统推送异常：', e?.message)
+    console.error('[messages] 调用 send-push 异常：', e?.message, e)
   }
 
   return { error: null }

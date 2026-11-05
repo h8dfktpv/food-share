@@ -98,19 +98,54 @@ Deno.serve(async (req) => {
   }
 
   // 校验调用者身份（必须是空间成员）
-  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-  if (!token) return json({ error: '缺少登录凭证' }, 401)
+  const authHeader = req.headers.get('Authorization') ?? ''
+  console.log('[send-push] Authorization header:', authHeader.slice(0, 30) + '...')
+
+  const token = authHeader.replace(/^Bearer\s+/i, '')
+  console.log('[send-push] 解析出的 token 前缀:', token.slice(0, 20) + '...')
+
+  if (!token) {
+    console.error('[send-push] 401：token 为空')
+    return json({ error: '缺少登录凭证' }, 401)
+  }
 
   const { data, error } = await admin.auth.getUser(token)
-  if (error || !data?.user) return json({ error: '登录凭证无效' }, 401)
+  console.log('[send-push] getUser 结果:', {
+    error: error?.message,
+    userId: data?.user?.id,
+    email: data?.user?.email
+  })
+
+  if (error || !data?.user) {
+    console.error('[send-push] 401：getUser 失败或无 user', error?.message)
+    return json({ error: '登录凭证无效' }, 401)
+  }
 
   const callerId = data.user.id
-  const { data: callerMember } = await admin
+  console.log('[send-push] 调用者 uid:', callerId)
+
+  const { data: callerMember, error: memberError } = await admin
     .from('members')
-    .select('user_id')
+    .select('user_id, display_name')
     .eq('user_id', callerId)
     .maybeSingle()
-  if (!callerMember) return json({ error: '无权操作' }, 403)
+
+  console.log('[send-push] members 表查询结果:', {
+    error: memberError?.message,
+    member: callerMember
+  })
+
+  if (memberError) {
+    console.error('[send-push] 500：members 查询出错', memberError.message)
+    return json({ error: '服务器错误' }, 500)
+  }
+
+  if (!callerMember) {
+    console.error('[send-push] 403：uid 不在 members 表中', callerId)
+    return json({ error: '无权操作' }, 403)
+  }
+
+  console.log('[send-push] 鉴权通过，调用者:', callerMember.display_name, callerId)
 
   // 解析请求体
   let body: any

@@ -53,10 +53,19 @@ export async function pushMessage({ userId, type, title, body = '', data = {} })
   //    用 fetch 直接调用，方便打印完整请求/响应定位问题。
   console.log('[messages] 步骤2：调用 send-push Edge Function')
   try {
-    const { data: session } = await supabase.auth.getSession()
-    const token = session?.session?.access_token
+    // 先刷新 session，确保拿到的 access_token 是最新有效的
+    // （getSession() 返回的可能是内存中已过期的旧 token）
+    const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
+    const token = refreshData?.session?.access_token
+
+    console.log('[messages] token 刷新结果:', {
+      error: refreshErr?.message,
+      hasToken: Boolean(token),
+      tokenPrefix: token ? token.slice(0, 20) + '...' : null
+    })
+
     if (!token) {
-      console.warn('[messages] 没有 session token，跳过推送')
+      console.warn('[messages] 没有有效 session token，跳过推送')
       return { error: null }
     }
 
@@ -69,7 +78,7 @@ export async function pushMessage({ userId, type, title, body = '', data = {} })
       tag: `liangrenshi-${type}`
     }
 
-    console.log('[messages] send-push 请求', { url: pushUrl, body: pushBody, token: token.slice(0, 20) + '...' })
+    console.log('[messages] send-push 请求', { url: pushUrl, body: pushBody })
 
     const resp = await fetch(pushUrl, {
       method: 'POST',

@@ -1,4 +1,5 @@
-import { supabase, supabaseUrl, vapidPublicKey } from './supabase'
+import { supabase, supabaseUrl } from './supabase'
+const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 /** 判断是否 iOS（含 iPadOS，iPad 默认 UA 是 Macintosh） */
 export function isIOS() {

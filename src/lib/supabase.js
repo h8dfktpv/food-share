@@ -23,7 +23,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 export const supabaseUrl = SUPABASE_URL
 
 /** Web Push 公钥（VAPID public key），为空时通知功能不可用 */
-export const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || ''
+export const vapidPublickey = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 /** 私有照片桶名称 */
 export const PHOTO_BUCKET = 'checkin-photos'

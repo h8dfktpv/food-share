@@ -31,7 +31,7 @@ export function memberName(userId) {
 export async function loadMembers() {
   const { data, error } = await supabase
     .from('members')
-    .select('user_id, email, display_name')
+    .select('user_id, email, display_name, partner_id')
     .order('created_at', { ascending: true })
 
   if (error) {

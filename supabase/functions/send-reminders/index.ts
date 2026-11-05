@@ -184,17 +184,8 @@ async function handleCron(req: Request) {
       continue
     }
 
-    const { data: subscriptions } = await admin
-      .from('push_subscriptions')
-      .select('id, endpoint, p256dh, auth')
-      .in('user_id', targetIds)
-
-    if (!subscriptions?.length) {
-      skipped += 1
-      continue
-    }
-
-    // 同一提醒每天只发一次；并发/重复调用时唯一约束会拦住
+    // 同一提醒每天只处理一次；并发/重复调用时唯一约束会拦住。
+    // 先占坑，再写站内信箱 + 发系统推送，保证两者同生共死、一天只一条。
     const { error: logError } = await admin
       .from('reminder_logs')
       .insert({ reminder_id: reminder.id, sent_date: now.date })
@@ -208,10 +199,34 @@ async function handleCron(req: Request) {
     }
 
     remindersReceived += 1
+
+    // 1) 先给对方每人写一条站内信箱消息：永久留存，铃铛红点会亮，
+    //    即使对方没装锁屏推送 / 手机收不到，登录后也能在信箱里看到。
+    const { error: mailboxError } = await admin.from('messages').insert(
+      targetIds.map((userId) => ({
+        user_id: userId,
+        type: 'meal_reminder',
+        title: `${reminder.label} · 饭点提醒`,
+        body: reminder.message,
+        data: { reminder_id: reminder.id, date: now.date }
+      }))
+    )
+    if (mailboxError) {
+      console.error('[mailbox] 写信箱失败', reminder.id, mailboxError)
+    }
+
+    // 2) 再尝试发系统锁屏推送；对方没订阅就静默跳过，信箱里仍有记录。
+    const { data: subscriptions } = await admin
+      .from('push_subscriptions')
+      .select('id, endpoint, p256dh, auth')
+      .in('user_id', targetIds)
+
+    if (!subscriptions?.length) continue
+
     const result = await sendToSubscriptions(subscriptions, {
       title: `${reminder.label} · 饭点提醒`,
       body: reminder.message,
-      url: '/',
+      url: '/?from=meal_reminder',
       tag: `reminder-${reminder.id}`
     })
     sent += result.sent

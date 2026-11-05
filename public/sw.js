@@ -8,7 +8,7 @@
  *
  * 更新版本号即可让旧缓存失效。
  */
-const VERSION = 'v1'
+const VERSION = 'v2'
 const SHELL_CACHE = `liangrenshi-shell-${VERSION}`
 const ASSET_CACHE = `liangrenshi-assets-${VERSION}`
 const IMAGE_CACHE = `liangrenshi-images-${VERSION}`
@@ -176,6 +176,8 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if (client.url.startsWith(self.location.origin)) {
           await client.focus()
+          // 告诉网页：用户是从通知点进来的，自动把信箱抽屉拉开
+          client.postMessage({ type: 'open-mailbox' })
           if ('navigate' in client) await client.navigate(target)
           return
         }

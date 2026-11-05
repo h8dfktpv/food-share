@@ -15,5 +15,13 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     navigator.serviceWorker.register('/sw.js').catch((error) => {
       console.warn('[sw] 注册失败：', error)
     })
+
+    // 从锁屏通知点开时，sw 会 postMessage 过来；
+    // 转发成 window 事件，Mailbox 组件收到就自动拉开抽屉
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'open-mailbox') {
+        setTimeout(() => window.dispatchEvent(new Event('open-mailbox')), 400)
+      }
+    })
   })
 }
